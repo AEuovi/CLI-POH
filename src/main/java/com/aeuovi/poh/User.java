@@ -1,8 +1,8 @@
 package com.aeuovi.poh;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 public class User {
@@ -24,13 +24,26 @@ public class User {
 
     @Override
     public String toString() {
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.enable(SerializationFeature.INDENT_OUTPUT); // Pretty print
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+            .withZone(ZoneId.systemDefault());
 
-        try {
-            return mapper.writeValueAsString(this);
-        } catch (JsonProcessingException e) {
-            return "Error converting User to JSON: " + e.getMessage();
-        }
+        String registered = timestamps != null ? formatter.format(Instant.ofEpochMilli(timestamps.registered)) : "N/A";
+        String joinedTownAt = timestamps != null ? formatter.format(Instant.ofEpochMilli(timestamps.joinedTownAt)) : "N/A";
+        String lastOnline = timestamps != null ? formatter.format(Instant.ofEpochMilli(timestamps.lastOnline)) : "N/A";
+
+        return String.format(
+            "Name: %s%nUUID: %s%nTitle: %s%nSurname: %s%nAbout: %s%n" +
+            "Town: %s%nNation: %s%nRegistered: %s%nJoinedTownAt: %s%nLast Online: %s",
+            name,
+            uuid,
+            title != null ? title : "N/A",
+            surname != null ? surname : "N/A",
+            about != null ? about : "N/A",
+            town != null ? town.name : "N/A",
+            nation != null ? nation.name : "N/A",
+            registered,
+            joinedTownAt,
+            lastOnline
+        );
     }
 }

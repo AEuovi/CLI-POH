@@ -1,71 +1,90 @@
 package com.aeuovi.poh;
 
+// FasterXML imports
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import java.io.OutputStream;
+// JLine imports
+import org.jline.reader.*;
+import org.jline.reader.LineReaderBuilder;
+import org.jline.terminal.Terminal;
+import org.jline.terminal.TerminalBuilder;
+
+// Java imports
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.List;
-import java.util.Scanner;
+import java.nio.file.*;
+import java.util.*;
 import java.util.stream.Collectors;
-import java.io.InputStreamReader;
-import java.io.BufferedReader;
 
 public class POH {
 
-    static String version = "v1.0.0";
+    private static final String VERSION = "v1.1.0";
+    private static final String PASSPORT_FILE = "LocalPassports.pof";
 
-    public static void main(String[] args) {
-        boolean active = true;
-        Scanner stdin = new Scanner(System.in);
+    public static void main(String[] args) throws IOException, InterruptedException {
+        Terminal terminal = TerminalBuilder.builder().system(true).build();
+        LineReader stdin = LineReaderBuilder.builder().terminal(terminal).build();
 
         System.out.println("Welcome to the Passport Office Helper (POH)");
-        help();
+        printHelp();
 
+        boolean active = true;
         while (active) {
-            System.out.print("> ");
-            String input = stdin.nextLine().toLowerCase();
-            String[] arguments = input.trim().split(" ");
+            String input = stdin.readLine("> ").toLowerCase().trim();
+            String[] arguments = input.split(" ");
 
             String command = arguments[0];
             String username = arguments.length > 1 ? arguments[1] : null;
+            boolean override = arguments.length > 2 && Boolean.parseBoolean(arguments[2]);
 
-            if ("help".equals(command)) {
-                help();
-            } else if ("version".equals(command)) {
-                version();
-            } else if ("playerinfo".equals(command)) {
-                playerInfo(username);
-            } else if ("iseligable".equals(command)) {
-                isEligable(username);
-            } else if ("isvalid".equals(command)) {
-                isValid(username);
-            } else if ("quit".equals(command)) {
-                active = false;
-                System.out.println("Thank you for using POH, have a nice day!");
-            } else {
-                System.out.println("Error: Unknown command");
+            switch (command) {
+                case "help":
+                    printHelp();
+                    break;
+                case "version":
+                    System.out.println("Passport Office Helper (POH) " + VERSION);
+                    break;
+                case "playerinfo":
+                    playerInfo(username);
+                    break;
+                case "iseligable":
+                    showEligibility(username);
+                    break;
+                case "isvalid":
+                    if ("all".equals(username)) isValidAll();
+                    else isValid(username);
+                    break;
+                case "issuepassport":
+                    issuePassport(username, override);
+                    break;
+                case "revokepassport":
+                    revokePassport(username);
+                    break;
+                case "quit":
+                    active = false;
+                    System.out.println("Thank you for using POH, have a nice day!");
+                    Thread.sleep(3000);
+                    break;
+                default:
+                    System.out.println("Error: Unknown command");
             }
         }
-
-        stdin.close();
     }
 
-    public static void help() {
+    private static void printHelp() {
         System.out.println(
-            "Valid commands:\n" +
-            "    Help : Displays this list\n" +
-            "    Version : Outputs the version\n" +
-            "    PlayerInfo <Username> : Outputs all of the relevant information of the given player\n" +
-            "    IsEligable <Username> : Determines if the given player is eligible for the passport\n" +
-            "    IsValid <Username> : Determines if the given player's passport is still valid\n" +
-            "    Quit : exits POH"
+                "Valid commands:\n" +
+                "    Help : Displays this list\n" +
+                "    Version : Outputs the version\n" +
+                "    PlayerInfo <Username> : Outputs all relevant info about a player\n" +
+                "    IsEligable <Username> : Checks if the player is eligible for a passport\n" +
+                "    IsValid <Username | all> : Checks if a passport is still valid\n" +
+                "    IssuePassport <Username> <true|false> : Issues a passport, optionally bypassing checks\n" +
+                "    RevokePassport <Username> : Revokes the player's passport\n" +
+                "    Quit : Exits POH"
         );
-    }
-
-    public static void version() {
-        System.out.println("Passport Office Helper (POH) " + version);
     }
 
     private static String sendPostRequest(String jsonBody) throws Exception {
@@ -75,111 +94,128 @@ public class POH {
         con.setRequestProperty("Content-Type", "application/json");
         con.setDoOutput(true);
 
-        OutputStream os = con.getOutputStream();
-        os.write(jsonBody.getBytes("UTF-8"));
-        os.close();
-
-        BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
-        String response = in.lines().collect(Collectors.joining());
-        in.close();
-
-        return response;
-    }
-
-    public static void playerInfo(String username) {
-        if (username == null || username.isEmpty()) {
-            System.out.println("Error: You must provide a username.");
-            return;
+        try (OutputStream os = con.getOutputStream()) {
+            os.write(jsonBody.getBytes("UTF-8"));
         }
 
-        String jsonBody = "{\"query\": [\"" + username + "\"]}";
-
-        try {
-            String body = sendPostRequest(jsonBody);
-            if (body.trim().equals("[]")) {
-                System.out.println("Unknown username.");
-                return;
-            }
-
-            ObjectMapper mapper = new ObjectMapper();
-            List<User> users = mapper.readValue(body, new TypeReference<List<User>>() {});
-            System.out.println(users.get(0).toString());
-
-        } catch (Exception e) {
-            System.out.println("An error occurred while fetching player info: " + e.getMessage());
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()))) {
+            return in.lines().collect(Collectors.joining());
         }
     }
 
-    public static void isEligable(String username) {
-        if (username == null || username.isEmpty()) {
+    private static void playerInfo(String username) {
+        if (isNullOrEmpty(username)) {
             System.out.println("Error: You must provide a username.");
             return;
         }
-
-        String jsonBody = "{\"query\": [\"" + username + "\"]}";
-
         try {
-            String body = sendPostRequest(jsonBody);
-            if (body.trim().equals("[]")) {
-                System.out.println("Unknown username.");
-                return;
-            }
-
-            ObjectMapper mapper = new ObjectMapper();
-            List<User> users = mapper.readValue(body, new TypeReference<List<User>>() {});
-            User user = users.get(0);
-
-            long registeredAt = user.timestamps.registered;
-            long now = System.currentTimeMillis();
-            long twoWeeksMillis = 14L * 24 * 60 * 60 * 1000;
-
-            if (now - registeredAt >= twoWeeksMillis) {
-                System.out.println(user.name + " is eligible for a passport.");
-            } else {
-                System.out.println(user.name + " is NOT eligible for a passport.");
-            }
-
+            User user = fetchUser(username);
+            if (user != null) System.out.println(user);
+            else System.out.println("Unknown username.");
         } catch (Exception e) {
-            System.out.println("An error occurred while checking eligibility: " + e.getMessage());
+            System.out.println("Error fetching player info: " + e.getMessage());
         }
     }
 
-    public static void isValid(String username) {
-        if (username == null || username.isEmpty()) {
+    private static boolean isEligible(String username) {
+        try {
+            User user = fetchUser(username);
+            if (user == null) return false;
+            long diff = System.currentTimeMillis() - user.timestamps.joinedTownAt;
+            return diff >= 14L * 24 * 60 * 60 * 1000;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static void showEligibility(String username) {
+        if (isNullOrEmpty(username)) {
             System.out.println("Error: You must provide a username.");
             return;
         }
-
-        String jsonBody = "{\"query\": [\"" + username + "\"]}";
-
         try {
-            String body = sendPostRequest(jsonBody);
-            if (body.trim().equals("[]")) {
+            User user = fetchUser(username);
+            if (user == null) {
                 System.out.println("Unknown username.");
                 return;
             }
-
-            ObjectMapper mapper = new ObjectMapper();
-            List<User> users = mapper.readValue(body, new TypeReference<List<User>>() {});
-            User user = users.get(0);
-
-            long lastOnline = user.timestamps.lastOnline;
-            long now = System.currentTimeMillis();
-            long elapsedMillis = now - lastOnline;
-
-            long daysSinceLastOnline = elapsedMillis / (1000 * 60 * 60 * 24);
-            long daysRemaining14 = 14 - daysSinceLastOnline;
-            long daysRemaining30 = 30 - daysSinceLastOnline;
-
-            if (daysRemaining14 <= 0) {
-                System.out.printf("The passport is no longer valid (is valid for %d more days)%n", Math.max(daysRemaining30, 0));
-            } else {
-                System.out.printf("The passport is still valid for %d more days (%d with notice)%n",
-                        daysRemaining14, Math.max(daysRemaining30, 0));
-            }
-
+            System.out.println(user.name + (isEligible(username) ? " is eligible." : " is NOT eligible."));
         } catch (Exception e) {
-            System.out.println("An error occurred while checking passport validity: " + e.getMessage());
+            System.out.println("Error checking eligibility: " + e.getMessage());
         }
+    }
+
+    private static void isValid(String username) {
+        if (isNullOrEmpty(username)) {
+            System.out.println("Error: You must provide a username.");
+            return;
+        }
+        try {
+            User user = fetchUser(username);
+            if (user == null) {
+                System.out.printf("Unknown username: %s%n", username);
+                return;
+            }
+            long daysSince = (System.currentTimeMillis() - user.timestamps.lastOnline) / (1000 * 60 * 60 * 24);
+            long days14 = 14 - daysSince;
+            long days30 = 30 - daysSince;
+            System.out.printf("%s: %s (%d days grace)%n", user.name,
+                    days14 <= 0 ? "NOT VALID" : "VALID for " + days14 + " more days", Math.max(days30, 0));
+        } catch (Exception e) {
+            System.out.printf("Error checking %s: %s%n", username, e.getMessage());
+        }
+    }
+
+    private static void isValidAll() throws IOException {
+        List<String> usernames = Files.readAllLines(Paths.get(PASSPORT_FILE));
+        if (usernames.isEmpty()) {
+            System.out.println("No usernames found in local passport file.");
+            return;
+        }
+        for (String username : usernames) {
+            isValid(username.trim());
+        }
+    }
+
+    private static void issuePassport(String username, boolean force) throws IOException {
+        if (isNullOrEmpty(username)) {
+            System.out.println("Error: You must provide a username.");
+            return;
+        }
+        if (!force && !isEligible(username)) {
+            System.out.println("Player is not eligible. Use override to bypass.");
+            return;
+        }
+        try (FileWriter fw = new FileWriter(PASSPORT_FILE, true)) {
+            fw.write(username + System.lineSeparator());
+            System.out.println("Passport issued.");
+        }
+    }
+
+    private static void revokePassport(String username) throws IOException {
+        if (isNullOrEmpty(username)) {
+            System.out.println("Error: You must provide a username.");
+            return;
+        }
+        Path path = Paths.get(PASSPORT_FILE);
+        List<String> lines = Files.readAllLines(path);
+        List<String> updated = lines.stream()
+                .filter(line -> !line.trim().equalsIgnoreCase(username.trim()))
+                .collect(Collectors.toList());
+        Files.write(path, updated);
+        System.out.println(updated.size() == lines.size() ? "No entry found." : "Passport revoked.");
+    }
+
+    private static User fetchUser(String username) throws Exception {
+        String jsonBody = "{\"query\": [\"" + username + "\"]}";
+        String response = sendPostRequest(jsonBody);
+        if (response.trim().equals("[]")) return null;
+        ObjectMapper mapper = new ObjectMapper();
+        List<User> users = mapper.readValue(response, new TypeReference<List<User>>() {});
+        return users.get(0);
+    }
+
+    private static boolean isNullOrEmpty(String s) {
+        return s == null || s.trim().isEmpty();
     }
 }
