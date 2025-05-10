@@ -19,7 +19,7 @@ The code is mostly hand written, with refactoring and optimization done by OpenA
   6. Type `java -jar packageName.jar` replacing "packageName.jar" with the name of the app
 
 ## Plans for the future:
-- Better Text UI
+- ~Better Text UI~
 - Maybe GUI, but that's in the far future
 - Globally shared passport list
 - Automatic passport creation
